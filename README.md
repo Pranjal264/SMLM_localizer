@@ -1,6 +1,6 @@
 # SMLM_localizer
 
-This is the Git repository for a program program I developed for image reconstruction in a STORM based super resolution microscope, as a part of my PhD
+This is the Git repository for a program I developed for image reconstruction in a STORM based super resolution microscope as a part of my PhD.
 
 ## Setting up
 
