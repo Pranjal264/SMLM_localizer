@@ -53,7 +53,7 @@ import utilities.PhasorLocalization
 import utilities.ImageVisualization
 # import utilities.RemoveIncorrectLocalizations
 
-# Function to process images (unchanged)
+# Function to process images
 
 
 def process_image(image, image_count, processing_parameters):
@@ -185,8 +185,6 @@ def run_processing():
         detection_x = np.concatenate(crude_localized_molecule_x, axis=0)
         detection_y = np.concatenate(crude_localized_molecule_y, axis=0)
 
-    # detection_x, detection_y = utilities.RemoveIncorrectLocalizations.remove_outliers(
-    #     detection_x, detection_y, IMAGE_SHAPE)
     end_time = time.time()
     print(f'total processing time: {end_time - start_time}s')
     messagebox.showinfo("Processing Complete",
@@ -224,11 +222,6 @@ def run_processing():
     plt.axis('off')
     plt.tight_layout()
     plt.show()
-
-    # end_time = time.time()
-    # print(f'total processing time: {end_time - start_time}s')
-    # messagebox.showinfo("Processing Complete",
-    # f'Total processing time: {end_time - start_time:.2f}s')
 
 # Function to browse for an input image
 
