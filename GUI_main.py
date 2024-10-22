@@ -1,43 +1,14 @@
-# BSD 3-Clause License
-
-# Copyright (c) 2024, Pranjal Choudhury
-
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-
-# 1. Redistributions of source code must retain the above copyright notice, this
-#    list of conditions and the following disclaimer.
-
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-
-# 3. Neither the name of the copyright holder nor the names of its
-#    contributors may be used to endorse or promote products derived from
-#    this software without specific prior written permission.
-
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-######################################################################################################################################
-
-
 import os
 import time
-import skimage.io as io
+# import skimage.io as io
+import tifffile
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.interpolate import CubicSpline
+from scipy.signal import savgol_filter
 import multiprocessing as mp
-# from tqdm import tqdm
+from tqdm import tqdm
 import tkinter as tk
 from tkinter import filedialog, ttk, Scrollbar
 from tkinter import messagebox
@@ -51,9 +22,74 @@ import utilities.TwoDLSFitting
 import utilities.TwoDMLE
 import utilities.PhasorLocalization
 import utilities.ImageVisualization
+import utilities.CrossCorrelationDriftCorrection
 # import utilities.RemoveIncorrectLocalizations
 
-# Function to process images
+
+def correct_drift(image_stack, number_of_images, interval, filtering, window_size, group_projection, group_size):
+    t1 = time.time()
+
+    # Normalize the first 10 images for group projection reference
+    if group_projection:
+        image_1_bg_sub = utilities.CrossCorrelationDriftCorrection.white_tophat_opencv(
+            np.mean(image_stack[:group_size], axis=0), (window_size, window_size))
+    else:
+        image_1_bg_sub = utilities.CrossCorrelationDriftCorrection.white_tophat_opencv(
+            image_stack[0], (window_size, window_size))
+
+    image_1_norm = image_1_bg_sub / np.max(image_1_bg_sub)
+
+    # Compute drifts using either individual frames or group projections
+    if group_projection:
+        drifts = utilities.CrossCorrelationDriftCorrection.process_images_group_projection(
+            image_stack, image_1_norm, interval, window_size, group_size)
+    else:
+        drifts = utilities.CrossCorrelationDriftCorrection.process_images(
+            image_stack, image_1_norm, interval, window_size)
+
+    # Unzip drift_x and drift_y
+    drift_x, drift_y = zip(*drifts)
+
+    # Create interpolators for the drift data
+    datapoints = np.arange(0, number_of_images,
+                           group_size if group_projection else interval)
+    cs_x = CubicSpline(datapoints, np.array(drift_x))
+    cs_y = CubicSpline(datapoints, np.array(drift_y))
+
+    # Interpolate drift over all frames
+    datapoints_fine = np.arange(0, number_of_images, 1)
+    drift_x_fine_cs = cs_x(datapoints_fine)
+    drift_y_fine_cs = cs_y(datapoints_fine)
+
+    # Optional filtering
+    if filtering:
+        drift_x_fine_cs = savgol_filter(
+            drift_x_fine_cs, window_length=interval*5, polyorder=3)
+        drift_y_fine_cs = savgol_filter(
+            drift_y_fine_cs, window_length=interval*5, polyorder=3)
+
+    # Apply drift correction to the full image stack
+    corrected_images = utilities.CrossCorrelationDriftCorrection.correct_images_multiprocessing(
+        image_stack, [drift_x_fine_cs, drift_y_fine_cs])
+
+    t2 = time.time()
+
+    # Plot the drift
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+    ax[0].plot(drift_x_fine_cs)
+    ax[0].set_xlabel('Image Number')
+    ax[0].set_ylabel('Drift (pixels)')
+    ax[0].set_title('Horizontal Drift')
+
+    ax[1].plot(drift_y_fine_cs)
+    ax[1].set_xlabel('Image Number')
+    ax[1].set_ylabel('Drift (pixels)')
+    ax[1].set_title('Vertical Drift')
+
+    print(f'drift correction time: {t2 - t1:.2f} seconds')
+
+    plt.show()
+    return corrected_images
 
 
 def process_image(image, image_count, processing_parameters):
@@ -119,15 +155,7 @@ def run_processing():
 
     start_time = time.time()
 
-    # Getting parameters from the GUI
-    input_file = input_file_entry.get()
-    IMAGE_STACK_FILE = input_file
-
-    image_stack = io.imread(IMAGE_STACK_FILE)
-    BACKGROUND = np.mean(image_stack, axis=0)
-
-    NUMBER_OF_IMAGES, DIMENSION_1, DIMENSION_2 = image_stack.shape
-    IMAGE_SHAPE = DIMENSION_1, DIMENSION_2
+    drift_correction_ = drift_correction_bool.get()
 
     RECONSTRUCTION_TYPE = reconstruction_type_combo.get()
     CRUDE_LOCALIZATION_TYPE = crude_localization_type_combo.get()
@@ -140,13 +168,30 @@ def run_processing():
     # Keeping this fixed for simplicity
     INIT_PARAMS = [255, 5, 5, 1.6, 1.6, 0, 0]
 
+    input_file = input_file_entry.get()
+    IMAGE_STACK_FILE = input_file
+    image_stack = tifffile.imread(IMAGE_STACK_FILE)
+
+    BACKGROUND = np.mean(image_stack, axis=0)
+    NUMBER_OF_IMAGES, DIMENSION_1, DIMENSION_2 = image_stack.shape
+    IMAGE_SHAPE = DIMENSION_1, DIMENSION_2
+
+    if drift_correction_:
+        interval = interval_slider.get()
+        filtering = filtering_switch_bool.get()
+        window_size_drift = drift_window_size_slider.get()
+        group_projection = group_projection_bool.get()
+        group_size = group_size_slider.get()
+
+        image_stack = correct_drift(image_stack, NUMBER_OF_IMAGES, interval,
+                                    filtering, window_size_drift, group_projection, group_size)
+
     processing_parameters = CRUDE_LOCALIZATION_TYPE, RECONSTRUCTION_TYPE, SUB_PIXEL_LOCALIZATION_METHOD, THRESHOLD, PSF_RADIUS, NEIGHBOURHOOD_SIZE, WINDOW_SIZE, INIT_PARAMS, BACKGROUND
 
     # Process images using multiprocessing
     with mp.Pool(processes=mp.cpu_count()) as pool:
         results = pool.starmap(process_image, [(
             image_stack[i], i, processing_parameters) for i in range(NUMBER_OF_IMAGES)])
-
     # Collect results
     frames = []
     crude_localized_molecule_x = []
@@ -185,6 +230,8 @@ def run_processing():
         detection_x = np.concatenate(crude_localized_molecule_x, axis=0)
         detection_y = np.concatenate(crude_localized_molecule_y, axis=0)
 
+    # detection_x, detection_y = utilities.RemoveIncorrectLocalizations.remove_outliers(
+    #     detection_x, detection_y, IMAGE_SHAPE)
     end_time = time.time()
     print(f'total processing time: {end_time - start_time}s')
     messagebox.showinfo("Processing Complete",
@@ -223,9 +270,8 @@ def run_processing():
     plt.tight_layout()
     plt.show()
 
+
 # Function to browse for an input image
-
-
 def browse_file():
     filename = filedialog.askopenfilename(
         filetypes=[("Image Files", "*.tif;*.tiff;*.png;*.jpg;*.jpeg")])
@@ -255,7 +301,26 @@ def save_image():
             "Save Image", f"Image saved successfully at {file_path}")
 
 
-# Setting up the GUI
+def toggle_drift_correction():
+    # Show or hide the drift correction options based on the switch
+    if drift_correction_bool.get():
+        interval_label = tk.Label(root, text="PSF Radius:")
+        interval_slider.grid(row=9, column=1, pady=5, padx=5)
+        interval_slider.set(3)
+        filtering_switch.grid(row=10, column=1, pady=5, padx=5)
+        drift_window_size_slider.grid(row=11, column=1, pady=5, padx=5)
+        drift_window_size_slider.set(15)
+        group_projection_switch.grid(row=12, column=1, pady=5, padx=5)
+        group_size_slider.grid(row=13, column=1, pady=5, padx=5)
+        group_size_slider.set(100)
+    else:
+        interval_slider.grid_remove()
+        filtering_switch.grid_remove()
+        drift_window_size_slider.grid_remove()
+        group_projection_switch.grid_remove()
+        group_size_slider.grid_remove()
+
+
 if __name__ == '__main__':
     root = tk.Tk()
     root.title("Image Processing GUI")
@@ -263,8 +328,6 @@ if __name__ == '__main__':
     # Configure the grid layout
     root.columnconfigure(0, weight=1)
     root.columnconfigure(1, weight=1)
-    root.rowconfigure(0, weight=1)
-    root.rowconfigure(1, weight=1)
 
     # Input file selection
     input_file_label = tk.Label(root, text="Select Input Image:")
@@ -337,17 +400,51 @@ if __name__ == '__main__':
     window_size_slider.grid(row=7, column=1, pady=5, padx=5)
     window_size_slider.set(5)
 
+    # Drift Correction switch
+    drift_correction_label = tk.Label(root, text="Enable Drift Correction:")
+    drift_correction_label.grid(row=8, column=0, pady=5, padx=5, sticky="W")
+    drift_correction_bool = tk.BooleanVar()
+    drift_correction_switch = ttk.Checkbutton(
+        root, variable=drift_correction_bool, command=toggle_drift_correction)
+    drift_correction_switch.grid(row=8, column=1, pady=5, padx=5, sticky="W")
+
+    # Drift Correction options (hidden by default)
+
+    interval_slider_label = tk.Label(root, text="Image in intervals of:")
+    interval_slider_label.grid(row=9, column=0, pady=5, padx=5, sticky="W")
+    interval_slider = tk.Scale(root, from_=1, to=20, orient=tk.HORIZONTAL)
+
+    filtering_switch_label = tk.Label(root, text="Enable Filtering:")
+    filtering_switch_label.grid(row=10, column=0, pady=5, padx=5, sticky="W")
+    filtering_switch_bool = tk.BooleanVar()
+    filtering_switch = ttk.Checkbutton(root, variable=filtering_switch_bool)
+
+    drift_window_size_label = tk.Label(root, text="Drift Window Size:")
+    drift_window_size_label.grid(row=11, column=0, pady=5, padx=5, sticky="W")
+    drift_window_size_slider = tk.Scale(
+        root, from_=10, to=30, orient=tk.HORIZONTAL)
+
+    group_projection_label = tk.Label(root, text="Enable Group Projection:")
+    group_projection_label.grid(row=12, column=0, pady=5, padx=5, sticky="W")
+    group_projection_bool = tk.BooleanVar()
+    group_projection_switch = ttk.Checkbutton(
+        root, variable=group_projection_bool)
+
+    group_size_label = tk.Label(root, text="Group Size:")
+    group_size_label.grid(row=13, column=0, pady=5, padx=5, sticky="W")
+    group_size_slider = tk.Scale(root, from_=1, to=500, orient=tk.HORIZONTAL)
+
     # Buttons row
     process_button = tk.Button(
         root, text="Process Images", command=run_processing)
-    process_button.grid(row=8, column=0, pady=20, padx=5)
+    process_button.grid(row=14, column=0, pady=20, padx=5)
 
     save_dataframe_button = tk.Button(
         root, text="Save DataFrame", command=save_dataframe)
-    save_dataframe_button.grid(row=8, column=1, pady=5, padx=5)
+    save_dataframe_button.grid(row=14, column=1, pady=5, padx=5)
 
     save_image_button = tk.Button(root, text="Save Image", command=save_image)
-    save_image_button.grid(row=8, column=2, pady=5, padx=5)
+    save_image_button.grid(row=14, column=2, pady=5, padx=5)
 
     # Start the GUI main loop
     root.mainloop()
