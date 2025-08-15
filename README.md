@@ -17,7 +17,7 @@ After setting up the virtual environment, you can install the dependencies as:
 
 ## Usage
 
-1. Run the script _GUI_main.py_ to call up the GUI, which looks like ![this](GUI_window.PNG).
+1. Run the script GUI_main.py to call up the GUI, which looks like this ![this](GUI_window.PNG).
 2. browse the image stack.
 3. select the thresholding method from the dropdown 'Threshold'.
 4. select the PSF detection method from the dropdown 'Select Crude Localization Type'.
@@ -26,6 +26,9 @@ After setting up the virtual environment, you can install the dependencies as:
 7. choose the PSF radius, Neighbourhood size and Window size using the sliders.
 8. cick on 'Process images' button to process the images.
 9. save the dataset csv and the output image by pressing 'Save DataFrame' and 'Save Image' buttons.
+
+
+#### a prettier GUI is presented in GUI_v2.py which looks like this ![this](GUI_v2_window.png)
 
 Thank you,
 
