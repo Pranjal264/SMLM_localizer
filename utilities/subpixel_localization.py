@@ -40,7 +40,7 @@ def localize(image, crude_coords, method='Gaussian Fit (LS)', **kwargs):
         try:
             if method == 'Gaussian Fit (LS)':
                 initial_guess = [roi.max() - roi.min(), half_box, half_box, 1.0, roi.min()]
-                popt, _ = curve_fit(_gaussian_2d, (y_grid.ravel(), x_grid.ravel()), roi.ravel(), p0=initial_guess)
+                popt, _ = curve_fit(_gaussian_2d, (x_grid.ravel(), y_grid.ravel()), roi.ravel(), p0=initial_guess)
                 amp, fit_y, fit_x, fwhm, _ = popt
 
             elif method == 'Gaussian Fit (MLE)':
