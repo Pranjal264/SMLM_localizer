@@ -27,7 +27,8 @@ Run the script main.py to call up the GUI, which looks like this ![GUI image](GU
 7. Type in Window size (in pixels).
 8. Type in the rendering Magnification. 
 9. Cick on 'Run Full Analysis' button to process the images.
-10. Save the dataset csv and the output image by pressing 'Save Localizations (CSV)' and 'Save Rendered Image Data' buttons.
+10. Once processing is done, the image can be rerendered using the available modes. 
+11. Save the dataset csv and the output image by pressing 'Save Localizations (CSV)' and 'Save Rendered Image Data' buttons.
 
 
 

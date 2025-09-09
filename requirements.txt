@@ -1,9 +1,9 @@
 numpy
+matplotlib
 scipy
 scikit-image
 pandas
-matplotlib
-h5py
-scikit-learn
-numba
-opencv-python
+tifffile
+tk-tools
+customtkinter
+

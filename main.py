@@ -3,7 +3,9 @@
 
 
 import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
+from tkinter import filedialog, messagebox
+import customtkinter as ctk
+
 import numpy as np
 import tifffile
 import matplotlib.pyplot as plt
@@ -20,6 +22,7 @@ from utilities import crude_localization
 from utilities import subpixel_localization
 from utilities import rendering
 
+# function to process each frame
 def process_frame(frame_data, params):
     """Worker function to process a single frame of the image stack."""
     frame_index, frame_image = frame_data
@@ -32,11 +35,9 @@ def process_frame(frame_data, params):
         if refined_coords.size == 0: return np.array([])
 
         frame_col = np.full((len(refined_coords), 1), frame_index)
-        
         full_data = np.hstack((frame_col, refined_coords[:, ::-1], additional_info))
         
         return full_data
-        # return refined_coords
     except Exception as e:
         print(f"Error processing frame {frame_index}: {e}")
         return np.array([])
@@ -45,159 +46,165 @@ class SMLMAnalyzerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SMLM Analyzer")
-        self.root.geometry("1366x900")
+        self.root.geometry("1200x900")
 
-        #  FONT & STYLE CONFIGURATION 
-        # 1. Define the fonts you want to use. You can easily change these values.
-        DEFAULT_FONT_SIZE = 12
-        TITLE_FONT_SIZE = 14
-        FONT_FAMILY = "Helvetica"
+        #  customtkinter theme and appearence
+        ctk.set_appearance_mode("Dark") ## Options: "System", "Dark", "Light"
+        ctk.set_default_color_theme("dark-blue") ## Options: "blue", "green", "dark-blue"
 
-        # 2. Configure the ttk styles for the GUI elements.
-        style = ttk.Style()
-        style.theme_use('vista') # Or 'clam', 'alt', 'default', 'classic'
+        #  Font configuration 
+        self.TITLE_FONT = ("Helvetica", 16, "bold")
 
-        # Configure all default ttk widgets
-        default_font = (FONT_FAMILY, DEFAULT_FONT_SIZE)
-        style.configure('.', font=default_font, padding=3)
+        dark_bg = "#424242"  
+        text_color = "#DCE4EE" 
 
-        # Configure specific ttk widgets for more control
-        style.configure('TLabel', font=default_font)
-        style.configure('TButton', font=default_font)
-        style.configure('TLabelFrame.Label', font=(FONT_FAMILY, TITLE_FONT_SIZE, 'bold')) # For the title of labelframes
-        style.configure('Accent.TButton', font=(FONT_FAMILY, 14, 'bold')) # Update your custom style
-
-        # 3. Configure Matplotlib's default font sizes for all plots.
+        # Matplotlib global style configuration
         plt.rcParams.update({
-            'font.size': DEFAULT_FONT_SIZE,
-            'axes.titlesize': TITLE_FONT_SIZE,
-            'axes.labelsize': DEFAULT_FONT_SIZE,
-            'xtick.labelsize': DEFAULT_FONT_SIZE - 2,
-            'ytick.labelsize': DEFAULT_FONT_SIZE - 2,
-            'legend.fontsize': DEFAULT_FONT_SIZE,
+            'figure.facecolor': dark_bg,    
+            'axes.facecolor':   dark_bg,    
+            'axes.edgecolor':   text_color, 
+            'axes.labelcolor':  text_color, 
+            'xtick.color':      text_color, 
+            'ytick.color':      text_color, 
+            'text.color':       text_color, 
+            'figure.titlesize': self.TITLE_FONT[1], 
+            'axes.titlecolor':  text_color  
         })
-        #  END OF FONT & STYLE CONFIGURATION 
 
+        # Application state variables
         self.image_stack = None
         self.final_coords = None
         self.image_shape = None
         self.num_frames = None
         self.rendered_image_data = None
 
-        main_frame = tk.Frame(root)
+        main_frame = ctk.CTkFrame(root, fg_color="transparent")
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        control_panel = tk.Frame(main_frame, width=400, relief=tk.RIDGE, bd=2)
+        control_panel = ctk.CTkFrame(main_frame, width=400)
         control_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         self._create_control_widgets(control_panel)
 
-        display_panel = tk.Frame(main_frame)
+        display_panel = ctk.CTkFrame(main_frame, fg_color="transparent")
         display_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        self.notebook = ttk.Notebook(display_panel)
+        self.notebook = ctk.CTkTabview(display_panel)
         self.notebook.pack(fill=tk.BOTH, expand=True)
-
-        # Matplotlib figures will now use the rcParams we set above
+        self.notebook.add('Raw Image')
+        self.notebook.add('Threshold Preview')
+        self.notebook.add('Rendered Result')
+        
         self.fig_raw, self.ax_raw = plt.subplots()
-        self.canvas_raw = FigureCanvasTkAgg(self.fig_raw, master=self.notebook)
-        self.notebook.add(self.canvas_raw.get_tk_widget(), text='Raw Image')
+        self.canvas_raw = FigureCanvasTkAgg(self.fig_raw, master=self.notebook.tab('Raw Image'))
+        self.canvas_raw.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         self.fig_preview, self.ax_preview = plt.subplots()
-        self.canvas_preview = FigureCanvasTkAgg(self.fig_preview, master=self.notebook)
-        self.notebook.add(self.canvas_preview.get_tk_widget(), text='Threshold Preview')
+        self.canvas_preview = FigureCanvasTkAgg(self.fig_preview, master=self.notebook.tab('Threshold Preview'))
+        self.canvas_preview.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         self.fig_render, self.ax_render = plt.subplots()
-        self.canvas_render = FigureCanvasTkAgg(self.fig_render, master=self.notebook)
-        self.notebook.add(self.canvas_render.get_tk_widget(), text='Rendered Result')
-
+        self.canvas_render = FigureCanvasTkAgg(self.fig_render, master=self.notebook.tab('Rendered Result'))
+        self.canvas_render.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def _create_control_widgets(self, parent):
         """Creates all the widgets for the control panel."""
         
         #  File Loading 
-        file_frame = ttk.LabelFrame(parent, text="1. Load Image Stack")
+        file_frame = ctk.CTkFrame(parent)
         file_frame.pack(padx=10, pady=10, fill=tk.X)
-        ttk.Button(file_frame, text="Browse for TIF Stack", command=self.load_image).pack(pady=5, padx=10, fill=tk.X)
-        self.file_label = ttk.Label(file_frame, text="No file loaded.", wraplength=350)
+        ctk.CTkLabel(file_frame, text="Load Image Stack", font=self.TITLE_FONT).pack(pady=(5,10), padx=10, anchor="w")
+        ctk.CTkButton(file_frame, text="Browse for TIF Stack", command=self.load_image).pack(pady=5, padx=10, fill=tk.X)
+        self.file_label = ctk.CTkLabel(file_frame, text="No file loaded.", wraplength=350)
         self.file_label.pack(pady=5, padx=10)
 
         #  Pipeline Configuration 
-        pipe_frame = ttk.LabelFrame(parent, text="2. Analysis Pipeline")
+        pipe_frame = ctk.CTkFrame(parent)
         pipe_frame.pack(padx=10, pady=10, fill=tk.X)
-
+        pipe_frame.grid_columnconfigure((1,2), weight=1)
+        ctk.CTkLabel(pipe_frame, text="Analysis Pipeline", font=self.TITLE_FONT).grid(row=0, column=0, columnspan=3, pady=(5,10), padx=10, sticky="w")
         self.params = {}
         
-        #  Filtering 
-        ttk.Label(pipe_frame, text="Filtering:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ctk.CTkLabel(pipe_frame, text="Filtering:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.params['filter_method'] = tk.StringVar(value='Gaussian')
-        ttk.OptionMenu(pipe_frame, self.params['filter_method'], 'Gaussian', 'Gaussian', 'Mean', 'Laplacian of Gaussian (LoG)', 'Difference of Gaussians (DoG)', 'None').grid(row=0, column=1, columnspan=2, sticky=tk.EW)
+        ctk.CTkOptionMenu(pipe_frame, variable=self.params['filter_method'], values=['Gaussian', 'Mean', 'LoG', 'DoG', 'None']).grid(row=1, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
 
-        #  Thresholding 
-        ttk.Label(pipe_frame, text="Thresholding:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ctk.CTkLabel(pipe_frame, text="Thresholding:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         self.params['threshold_method'] = tk.StringVar(value='Adaptive')
-        ttk.OptionMenu(pipe_frame, self.params['threshold_method'], 'Adaptive', 'Adaptive', 'Otsu', 'Manual').grid(row=1, column=1, columnspan=2, sticky=tk.EW)
+        ctk.CTkOptionMenu(pipe_frame, variable=self.params['threshold_method'], values=['Adaptive', 'Otsu', 'Manual']).grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
         
-        #  Manual Threshold Slider (initially hidden) 
-        self.manual_thresh_frame = ttk.Frame(pipe_frame)
-        self.manual_thresh_label = ttk.Label(self.manual_thresh_frame, text="Threshold:")
-        self.manual_thresh_label.pack(side=tk.LEFT, padx=5)
+        self.manual_thresh_frame = ctk.CTkFrame(pipe_frame, fg_color="transparent")
         self.manual_thresh_value = tk.DoubleVar()
-        self.manual_thresh_slider = ttk.Scale(self.manual_thresh_frame, from_=0, to=65535, variable=self.manual_thresh_value, orient=tk.HORIZONTAL, command=lambda e: self.preview_threshold())
-        self.manual_thresh_slider.pack(side=tk.LEFT, expand=True, fill=tk.X)
-        
-        self.manual_thresh_display = ttk.Label(self.manual_thresh_frame, textvariable=self.manual_thresh_value, width=6, font=('Helvetica', 14, 'bold'))
+        self.manual_thresh_slider = ctk.CTkSlider(self.manual_thresh_frame, from_=0, to=65535, variable=self.manual_thresh_value, command=lambda e: self.preview_threshold())
+        self.manual_thresh_slider.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+        self.manual_thresh_display = ctk.CTkLabel(self.manual_thresh_frame, textvariable=self.manual_thresh_value, width=40)
         self.manual_thresh_display.pack(side=tk.LEFT, padx=5)
         
-        #  Other Parameters 
-        ttk.Label(pipe_frame, text="Crude Localization:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        ctk.CTkLabel(pipe_frame, text="Crude Localization:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
         self.params['crude_method'] = tk.StringVar(value='Peak Local Max')
-        ttk.OptionMenu(pipe_frame, self.params['crude_method'], 'Peak Local Max', 'Peak Local Max', 'Center of Mass', 'Blob Detection (LoG)').grid(row=3, column=1, columnspan=2, sticky=tk.EW)
+        ctk.CTkOptionMenu(pipe_frame, variable=self.params['crude_method'], values=['Peak Local Max', 'Center of Mass', 'Blob Detection (LoG)']).grid(row=4, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
 
-        ttk.Label(pipe_frame, text="Sub-pixel Localization:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        ctk.CTkLabel(pipe_frame, text="Sub-pixel Localization:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
         self.params['subpixel_method'] = tk.StringVar(value='Gaussian Fit (LS)')
-        ttk.OptionMenu(pipe_frame, self.params['subpixel_method'], 'Gaussian Fit (LS)', 'Gaussian Fit (MLE)', 'Gaussian Fit (LS)', 'Phasor').grid(row=4, column=1, columnspan=2, sticky=tk.EW)
+        ctk.CTkOptionMenu(pipe_frame, variable=self.params['subpixel_method'], values=['Gaussian Fit (LS)', 'Gaussian Fit (MLE)', 'Phasor']).grid(row=5, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
         
-        ttk.Label(pipe_frame, text="Window Size:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
-        self.params['box_size_entry'] = ttk.Entry(pipe_frame, width=10)
+        ctk.CTkLabel(pipe_frame, text="Window Size:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        self.params['box_size_entry'] = ctk.CTkEntry(pipe_frame, width=120)
         self.params['box_size_entry'].insert(0, "7")
-        self.params['box_size_entry'].grid(row=5, column=1, sticky=tk.W)
-
-        ttk.Label(pipe_frame, text="Rendering:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
-        self.params['render_method'] = tk.StringVar(value='Gaussian')
-        ttk.OptionMenu(pipe_frame, self.params['render_method'], 'Gaussian', 'Gaussian', '2D Histogram', 'ASH','Scatter Plot').grid(row=6, column=1, columnspan=2, sticky=tk.EW)
-
-        ttk.Label(pipe_frame, text="Magnification:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=5)
-        self.params['magnification_entry'] = ttk.Entry(pipe_frame, width=10)
-        self.params['magnification_entry'].insert(0, "10.0")
-        self.params['magnification_entry'].grid(row=7, column=1, sticky=tk.W)
+        self.params['box_size_entry'].grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Button(pipe_frame, text="Preview Threshold", command=self.preview_threshold).grid(row=8, column=0, columnspan=3, pady=10, sticky=tk.EW)
+        ctk.CTkButton(pipe_frame, text="Preview Threshold", command=self.preview_threshold).grid(row=7, column=0, columnspan=3, pady=10, sticky=tk.EW, padx=5)
 
         #  Run Control 
-        run_frame = ttk.LabelFrame(parent, text="3. Execute")
+        run_frame = ctk.CTkFrame(parent)
         run_frame.pack(padx=10, pady=10, fill=tk.X)
-        ttk.Button(run_frame, text="RUN FULL ANALYSIS", command=self.run_analysis, style='Accent.TButton').pack(padx=10, pady=10, fill=tk.X, ipady=10)
+        ctk.CTkLabel(run_frame, text="Execute", font=self.TITLE_FONT).pack(pady=(5,10), padx=10, anchor="w")
+        ctk.CTkButton(run_frame, text="RUN FULL ANALYSIS", command=self.run_analysis, height=40, font=("Helvetica", 15, 'bold')).pack(padx=10, pady=10, fill=tk.X)
         
-        self.progress_label = ttk.Label(run_frame, text="Status: Idle")
+        self.progress_label = ctk.CTkLabel(run_frame, text="Status: Idle")
         self.progress_label.pack(pady=5)
-        self.progress_bar = ttk.Progressbar(run_frame, orient='horizontal', mode='determinate')
+        self.progress_bar = ctk.CTkProgressBar(run_frame)
+        self.progress_bar.set(0)
         self.progress_bar.pack(pady=5, padx=10, fill=tk.X)
 
-        #  Export Control 
-        export_frame = ttk.LabelFrame(parent, text="4. Export Results")
-        export_frame.pack(side=tk.BOTTOM, padx=10, pady=10, fill=tk.X)
-        # export_frame.pack(padx=10, pady=10, fill=tk.X, expand=True)
-        ttk.Button(export_frame, text="Save Localizations (CSV)", command=self.save_localizations).pack(side=tk.LEFT, expand=True, padx=5, pady=5)
-        ttk.Button(export_frame, text="Save Rendered Image Data", command=self.save_rendered_image).pack(side=tk.RIGHT, expand=True, padx=5, pady=5)
+        #  Render and Export Control Frame 
+        self.render_export_frame = ctk.CTkFrame(parent)
+        self.render_export_frame.pack(side=tk.BOTTOM, padx=10, pady=10, fill=tk.X)
+        self.render_export_frame.grid_columnconfigure(1, weight=1)
         
-        # This trace must be set AFTER the manual_thresh_frame is created
-        self.params['threshold_method'].trace('w', self._on_threshold_method_change)
-        self._on_threshold_method_change() # Call once to set initial state
+        ctk.CTkLabel(self.render_export_frame, text="Render & Export", font=self.TITLE_FONT).grid(row=0, column=0, columnspan=2, pady=(5,10), padx=10, sticky="w")
+
+        ctk.CTkLabel(self.render_export_frame, text="Rendering:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.params['render_method'] = tk.StringVar(value='Gaussian')
+        self.render_menu = ctk.CTkOptionMenu(self.render_export_frame, variable=self.params['render_method'], values=['Gaussian', '2D Histogram', 'ASH', 'Scatter Plot'])
+        self.render_menu.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        ctk.CTkLabel(self.render_export_frame, text="Magnification:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.params['magnification_entry'] = ctk.CTkEntry(self.render_export_frame)
+        self.params['magnification_entry'].insert(0, "10.0")
+        self.params['magnification_entry'].grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        self.rerender_button = ctk.CTkButton(self.render_export_frame, text="Rerender Image", command=self.rerender_image)
+        self.rerender_button.grid(row=3, column=0, columnspan=2, pady=10, padx=5, sticky=tk.EW)
+        
+        self.save_loc_button = ctk.CTkButton(self.render_export_frame, text="Save Localizations (CSV)", command=self.save_localizations)
+        self.save_loc_button.grid(row=4, column=0, padx=5, pady=5, sticky=tk.EW)
+        
+        self.save_img_button = ctk.CTkButton(self.render_export_frame, text="Save Rendered Image Data", command=self.save_rendered_image)
+        self.save_img_button.grid(row=4, column=1, padx=5, pady=5, sticky=tk.EW)
+
+        self.params['threshold_method'].trace_add('write', self._on_threshold_method_change)
+        self._on_threshold_method_change()
+        self._toggle_post_analysis_controls('disabled') # Initially disable render/export
+
+    def _toggle_post_analysis_controls(self, state='disabled'):
+        """ ## NEW ## Helper to enable/disable rendering and export widgets."""
+        for widget in [self.render_menu, self.params['magnification_entry'], self.rerender_button, self.save_loc_button, self.save_img_button]:
+            widget.configure(state=state)
 
     def _on_threshold_method_change(self, *args):
         """Callback to show/hide the manual threshold slider."""
         if self.params['threshold_method'].get() == 'Manual':
-            self.manual_thresh_frame.grid(row=2, column=0, columnspan=3, sticky=tk.EW, padx=5, pady=2)
+            self.manual_thresh_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, padx=5, pady=2)
         else:
             self.manual_thresh_frame.grid_forget()
 
@@ -211,11 +218,10 @@ class SMLMAnalyzerApp:
             
             self.image_shape = self.image_stack[0].shape
             self.num_frames = len(self.image_stack)
-            self.file_label.config(text=f"{filepath.split('/')[-1]} ({self.num_frames} frames)")
+            self.file_label.configure(text=f"{filepath.split('/')[-1]} ({self.num_frames} frames)")
             
-            img_min = self.image_stack.min()
-            img_max = self.image_stack.max()
-            self.manual_thresh_slider.config(from_=img_min, to=img_max)
+            img_min, img_max = self.image_stack.min(), self.image_stack.max()
+            self.manual_thresh_slider.configure(from_=img_min, to=img_max)
             self.manual_thresh_value.set((img_min + img_max) / 4)
             
             self.ax_raw.clear()
@@ -224,13 +230,12 @@ class SMLMAnalyzerApp:
             self.ax_raw.axis('off')
             self.fig_raw.tight_layout() 
             self.canvas_raw.draw()
-            self.notebook.select(0)
+            self.notebook.set('Raw Image')
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load image stack: {e}")
 
     def preview_threshold(self):
-        """Applies the selected filter and threshold to the first frame and displays it."""
         if self.image_stack is None:
             messagebox.showwarning("Warning", "Please load an image first.")
             return
@@ -253,50 +258,34 @@ class SMLMAnalyzerApp:
             self.ax_preview.set_title(f"Threshold Preview ({thresh_method})")
             self.fig_preview.tight_layout() 
             self.canvas_preview.draw()
-            self.notebook.select(1) 
+            self.notebook.set('Threshold Preview') 
             
         except Exception as e:
             messagebox.showerror("Error", f"Could not generate preview: {e}")
 
     def run_analysis(self):
+        """ ## MODIFIED ## Runs only localization, then triggers one initial render."""
         if self.image_stack is None:
             messagebox.showwarning("Warning", "Please load an image stack first.")
             return
 
         try:
             start_time = time.time()
-            num_frames = len(self.image_stack)
-            self.progress_bar['maximum'] = num_frames
+            self.progress_bar.set(0)
+            self.final_coords = None # Reset previous results
+            self._toggle_post_analysis_controls('disabled') # Disable buttons during run
             
             analysis_params = {
-                'filter': {'method': self.params['filter_method'].get(), 'sigma': 1.0},
+                'filter': {'method': self.params['filter_method'].get()},
                 'threshold': {'method': self.params['threshold_method'].get()},
                 'crude': {'method': self.params['crude_method'].get()},
                 'subpixel': {'method': self.params['subpixel_method'].get(), 'box_size': int(self.params['box_size_entry'].get())}
             }
             
-            # box_size = int(self.params['box_size_entry'].get())
-            
-            # filtering kwargs
-            analysis_params['filter']['sigma'] = 1.5
-            analysis_params['filter']['size'] = 3
-            analysis_params['filter']['low_sigma'] = 1
-            analysis_params['filter']['high_sigma'] = 2.5
-
-            # crude localization kwargs   
-            box_size = int(self.params['box_size_entry'].get())        
+            analysis_params['filter'].update({'sigma': 1.5, 'size': 3, 'low_sigma': 1, 'high_sigma': 2.5})
+            box_size = int(self.params['box_size_entry'].get()) 
             psf_size = (box_size - 1) // 2
-
-            # Calculate the desired PSF size for crude localization
-            # PLM
-            analysis_params['crude']['min_distance'] = psf_size
-            # COM
-            analysis_params['crude']['neighborhood_size'] = psf_size
-
-            # Blob
-            analysis_params['crude']['max_sigma'] = psf_size
-            analysis_params['crude']['threshold'] = 1 * np.mean(self.image_stack)
-
+            analysis_params['crude'].update({'min_distance': psf_size, 'neighborhood_size': psf_size, 'max_sigma': psf_size, 'threshold': 1 * np.mean(self.image_stack)})
 
             if analysis_params['threshold']['method'] == 'Manual':
                 analysis_params['threshold']['threshold_value'] = self.manual_thresh_value.get()
@@ -306,25 +295,45 @@ class SMLMAnalyzerApp:
             num_cores = multiprocessing.cpu_count()
             print(f"Starting analysis on {num_cores} cores...")
             with multiprocessing.Pool(processes=num_cores) as pool:
-                results_iterator = pool.imap_unordered(worker_func, enumerate(self.image_stack))
-                
                 all_data_list = []
-                for i, result in enumerate(results_iterator):
+                for i, result in enumerate(pool.imap_unordered(worker_func, enumerate(self.image_stack))):
                     if result.size > 0: 
                         all_data_list.append(result)
-                    self.progress_bar['value'] = i + 1
-                    self.progress_label.config(text=f"Processing: {i + 1}/{num_frames}")
+                    progress_value = (i + 1) / self.num_frames
+                    self.progress_bar.set(progress_value)
+                    self.progress_label.configure(text=f"Processing: {i + 1}/{self.num_frames}")
                     self.root.update_idletasks()
 
             if not all_data_list:
                 messagebox.showinfo("Info", "Analysis complete, but no localizations found.")
-                self.progress_label.config(text="Status: Idle")
+                self.progress_label.configure(text="Status: Idle")
                 return
 
             self.final_coords = np.vstack(all_data_list)
+            
+            end_time = time.time()
+            self.progress_label.configure(text="Status: Done!")
+            messagebox.showinfo("Success", f"Analysis complete in {end_time - start_time:.2f}s!\nFound {len(self.final_coords)} total localizations.")
 
-            self.progress_label.config(text="Rendering final image...")
+            #  Trigger initial render and enable controls 
+            self.rerender_image()
+            self._toggle_post_analysis_controls('normal')
+
+        except Exception as e:
+            self.progress_label.configure(text="Status: Error!")
+            self._toggle_post_analysis_controls('disabled')
+            messagebox.showerror("Error", f"An error occurred: {e}")
+
+    def rerender_image(self):
+        """ ## NEW ## Renders the image using current GUI parameters without re-analyzing."""
+        if self.final_coords is None:
+            messagebox.showwarning("Warning", "Please run analysis first to get localization data.")
+            return
+            
+        try:
+            self.progress_label.configure(text="Rendering image...")
             self.root.update_idletasks()
+
             render_params = {
                 'method': self.params['render_method'].get(),
                 'pixel_size': float(self.params['magnification_entry'].get())
@@ -334,15 +343,13 @@ class SMLMAnalyzerApp:
             self.rendered_image_data = rendering.render(render_coords, self.ax_render, self.image_shape, **render_params)
             self.fig_render.tight_layout() 
             self.canvas_render.draw()
-            self.notebook.select(2) 
+            self.notebook.set('Rendered Result')
             
-            end_time = time.time()
-            self.progress_label.config(text="Status: Done!")
-            messagebox.showinfo("Success", f"Analysis complete in {end_time - start_time:.2f}s!\nFound {len(self.final_coords)} total localizations.")
-
+            self.progress_label.configure(text="Status: Done!")
+            
         except Exception as e:
-            self.progress_label.config(text="Status: Error!")
-            messagebox.showerror("Error", f"An error occurred: {e}")
+            self.progress_label.configure(text="Status: Render Error!")
+            messagebox.showerror("Render Error", f"Could not render the image: {e}")
 
     def save_localizations(self):
         if self.final_coords is None or self.final_coords.size == 0:
@@ -374,6 +381,6 @@ class SMLMAnalyzerApp:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    root = tk.Tk()
+    root = ctk.CTk()
     app = SMLMAnalyzerApp(root)
     root.mainloop()
