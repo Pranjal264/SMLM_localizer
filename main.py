@@ -253,7 +253,7 @@ class SMLMAnalyzerApp:
             mask = thresholding.apply_threshold(filtered_image, **thresh_params)
             
             self.ax_preview.clear()
-            self.ax_preview.imshow(mask, cmap='gray')
+            self.ax_preview.imshow(mask*preview_image, cmap='gray')
             self.ax_preview.axis('off')
             self.ax_preview.set_title(f"Threshold Preview ({thresh_method})")
             self.fig_preview.tight_layout() 
@@ -363,7 +363,7 @@ class SMLMAnalyzerApp:
             df['frame'] = df['frame'] + 1
             df_sorted = df.sort_values(by='frame').reset_index(drop=True)
             df_sorted.to_csv(filepath, index=False)
-            messagebox.showinfo("Success", f"Successfully saved sorted localizations to:\n{filepath}")
+            messagebox.showinfo("Success", f"Successfully saved localizations to:\n{filepath}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save file: {e}")
 

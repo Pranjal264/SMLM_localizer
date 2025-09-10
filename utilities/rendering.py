@@ -22,11 +22,11 @@ def render(coords, ax, image_shape, method='Gaussian', **kwargs):
 
     if method == 'Scatter Plot':
         print("Rendering as scatter plot...")
-        ax.scatter(coords[:, 0], coords[:, 1], s=1, c='yellow', marker='.')
+        ax.scatter(coords[:, 0], coords[:, 1], s=1, c='red', marker='.')
         ax.set_facecolor('black')
         ax.set_aspect('equal', 'box')
         ax.set_xlim(0, image_shape[1])
-        ax.set_ylim(image_shape[0], 0) # Invert y-axis for image convention
+        ax.set_ylim(image_shape[0], 0) 
         ax.set_title("Scatter Plot Rendering")
         rendered_image_data = None
 
@@ -40,14 +40,12 @@ def render(coords, ax, image_shape, method='Gaussian', **kwargs):
         range_x = [0, image_shape[1]]
         range_y = [0, image_shape[0]]
         hist_ = np.histogram2d(coords[:, 1], coords[:, 0], bins=[bins_x, bins_y], range=[range_x, range_y])[0]
-        hist =  np.flipud(hist_)
-        # hist2d expects (x, y)
-        ax.imshow(hist, cmap='hot')
+        ax.imshow(hist_, cmap='hot')
         ax.set_facecolor('black')
         ax.set_aspect('equal', 'box')
-        ax.invert_yaxis() # Match image coordinate system
+        # ax.invert_yaxis() # Match image coordinate system
         ax.set_title(f"2D Histogram Rendering with {magnification}X Magnification")
-        rendered_image_data = hist
+        rendered_image_data = hist_
 
     elif method == 'ASH':
         print("Rendering as Averaged Shifted Histogram...")
@@ -81,10 +79,10 @@ def render(coords, ax, image_shape, method='Gaussian', **kwargs):
 
         # Set values below the mean to zero to remove noise
         avg_hist[avg_hist < np.mean(avg_hist)] = 0
+        avg_hist = avg_hist[::-1, :]
         ax.imshow(avg_hist, cmap='hot', origin='upper', aspect='equal')
         ax.set_facecolor('black')
         ax.set_aspect('equal', 'box')
-        ax.invert_yaxis() # Match image coordinate system
         ax.set_title(f"ASH Rendering with {magnification}X magnification")
         rendered_image_data = avg_hist
 
@@ -119,7 +117,7 @@ def render(coords, ax, image_shape, method='Gaussian', **kwargs):
         
         # Use origin='upper' for correct image orientation
         ax.imshow(rendered_image, cmap='hot', origin='upper', aspect='equal')
-        ax.set_title(f"Gaussian Rendering with {magnification}X Magnification \n Image dimensions: {image_shape[1]*magnification} X {image_shape[0]*magnification}")
+        ax.set_title(f"Gaussian Rendering with {magnification}X Magnification")# \n Image dimensions: {image_shape[1]*magnification} X {image_shape[0]*magnification}")
         rendered_image_data = rendered_image
 
     ax.set_xticks([])
